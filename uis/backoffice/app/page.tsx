@@ -1,20 +1,16 @@
-import { getOpenIncidentSummary, type IncidentSeveritySummary } from "@repo/shared-types";
+import {
+  loadOpenIncidentSummary,
+  type IncidentSeveritySummary,
+} from "@repo/shared-types";
 
-export const dynamic = "force-dynamic";
+// Revalidación incremental (ISR): HTML cacheable para habilitar bfcache,
+// con datos operativos actualizados cada 15 segundos.
+export const revalidate = 15;
 
 const labels = { critical: "Críticas", high: "Altas", medium: "Medias", low: "Bajas" } as const;
 
-async function loadSummary(): Promise<{ data: IncidentSeveritySummary; online: boolean }> {
-  try {
-    const data = await getOpenIncidentSummary(process.env.INCIDENT_API_URL ?? "http://127.0.0.1:8000");
-    return { data, online: true };
-  } catch {
-    return { data: { critical: 0, high: 0, medium: 0, low: 0 }, online: false };
-  }
-}
-
 export default async function BackofficeHome() {
-  const { data, online } = await loadSummary();
+  const { data, online } = await loadOpenIncidentSummary(process.env.INCIDENT_API_URL ?? "http://127.0.0.1:8000");
   const total = Object.values(data).reduce((sum, value) => sum + value, 0);
   return <div className="shell">
     <aside><div className="mark">HC</div><strong>HealthCore<br />Operations</strong><nav><a className="active" href="/">Panel</a><a href="#incidents">Incidencias</a><a href="#modules">Módulos</a></nav><small>Uso interno · Sin PHI</small></aside>

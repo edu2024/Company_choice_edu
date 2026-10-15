@@ -65,18 +65,63 @@ export interface IncidentAuditEvent {
 
 export type IncidentSeveritySummary = Record<IncidentSeverity, number>;
 
+export const INCIDENT_SUMMARY_REVALIDATE_SECONDS = 15;
+
+// Next.js amplía RequestInit con `next.revalidate`; el paquete compartido
+// no depende de los tipos de Next, así que lo declaramos localmente.
+type NextFetchRequestInit = RequestInit & {
+  next?: { revalidate?: number };
+};
+
+/**
+ * Obtiene el resumen de incidencias abiertas desde services/incident-api.
+ * Usa revalidación incremental (ISR) en lugar de `cache: "no-store"` para
+ * permitir al navegador usar back/forward cache (bfcache) en el backoffice.
+ */
 export async function getOpenIncidentSummary(
   apiUrl: string,
 ): Promise<IncidentSeveritySummary> {
-  const response = await fetch(`${apiUrl}/incidents/summary/open-by-severity`, {
-    cache: "no-store",
-  });
+  const init: NextFetchRequestInit = {
+    next: { revalidate: INCIDENT_SUMMARY_REVALIDATE_SECONDS },
+  };
+  const response = await fetch(
+    `${apiUrl}/incidents/summary/open-by-severity`,
+    init,
+  );
 
   if (!response.ok) {
     throw new Error("Incident summary is unavailable");
   }
 
   return response.json() as Promise<IncidentSeveritySummary>;
+}
+
+export interface IncidentSummaryLoad {
+  data: IncidentSeveritySummary;
+  online: boolean;
+}
+
+export const EMPTY_INCIDENT_SUMMARY: IncidentSeveritySummary = {
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0,
+};
+
+/**
+ * Abstracción compartida para cargar el resumen sin romper el renderizado
+ * cuando la API no está disponible (fallback offline). Reemplaza el patrón
+ * try/catch duplicado que vivía dentro de la página del backoffice.
+ */
+export async function loadOpenIncidentSummary(
+  apiUrl: string,
+): Promise<IncidentSummaryLoad> {
+  try {
+    const data = await getOpenIncidentSummary(apiUrl);
+    return { data, online: true };
+  } catch {
+    return { data: EMPTY_INCIDENT_SUMMARY, online: false };
+  }
 }
 
 export type InventoryUnit = "unit" | "box" | "ml" | "tablet";
