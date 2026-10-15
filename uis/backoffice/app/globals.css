@@ -1,4 +1,4 @@
-:root { --ink: #17383a; --teal: #087f78; --paper: #f4f6f2; --line: #d4ded8; --coral: #d95f43; --amber: #d99a22; }
+:root { --ink: #17383a; --teal: #055f59; --paper: #f4f6f2; --line: #d4ded8; --coral: #b34a30; --amber: #8a6200; }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Gill Sans", "Trebuchet MS", sans-serif; }
 .shell { min-height: 100svh; display: grid; grid-template-columns: 230px 1fr; }
