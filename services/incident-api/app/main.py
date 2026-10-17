@@ -3,15 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .inventory_router import router as inventory_router
 from .models import (
+    HealthResponse,
     Incident,
     IncidentArea,
     IncidentAreaUpdate,
     IncidentAuditEvent,
     IncidentCreate,
+    IncidentListItem,
     IncidentSeverity,
     IncidentStatus,
     IncidentStatusUpdate,
     IncidentUpdate,
+    OpenIncidentsSummary,
 )
 from .store import IncidentStore
 
@@ -35,9 +38,9 @@ store = IncidentStore()
 app.include_router(inventory_router)
 
 
-@app.get("/health", tags=["system"])
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+@app.get("/health", response_model=HealthResponse, tags=["system"])
+def health_check() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @app.post("/incidents", response_model=Incident, status_code=status.HTTP_201_CREATED)
@@ -45,21 +48,39 @@ def create_incident(payload: IncidentCreate) -> Incident:
     return store.create(payload)
 
 
-@app.get("/incidents", response_model=list[Incident])
+@app.get("/incidents", response_model=list[IncidentListItem])
 def list_incidents(
     status: IncidentStatus | None = None,
     severity: IncidentSeverity | None = None,
     responsible_area: IncidentArea | None = None,
-) -> list[Incident]:
-    return store.list_all(status, severity, responsible_area)
+) -> list[IncidentListItem]:
+    return [
+        IncidentListItem(
+            id=incident.id,
+            title=incident.title,
+            type=incident.type,
+            severity=incident.severity,
+            status=incident.status,
+            responsible_area=incident.responsible_area,
+            created_at=incident.created_at,
+            updated_at=incident.updated_at,
+        )
+        for incident in store.list_all(status, severity, responsible_area)
+    ]
 
 
-@app.get("/incidents/summary/open-by-severity")
-def open_incidents_by_severity() -> dict[str, int]:
-    return {
-        severity.value: count
-        for severity, count in store.open_by_severity().items()
-    }
+@app.get(
+    "/incidents/summary/open-by-severity",
+    response_model=OpenIncidentsSummary,
+)
+def open_incidents_by_severity() -> OpenIncidentsSummary:
+    counts = store.open_by_severity()
+    return OpenIncidentsSummary(
+        critical=counts[IncidentSeverity.critical],
+        high=counts[IncidentSeverity.high],
+        medium=counts[IncidentSeverity.medium],
+        low=counts[IncidentSeverity.low],
+    )
 
 
 @app.get("/incidents/{incident_id}", response_model=Incident)

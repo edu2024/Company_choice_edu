@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -77,6 +78,30 @@ class Incident(BaseModel):
     responsible_area: IncidentArea | None
     created_at: datetime
     updated_at: datetime
+
+
+class IncidentListItem(BaseModel):
+    """Compact incident projection for list consumers."""
+
+    id: str
+    title: str
+    type: IncidentType
+    severity: IncidentSeverity
+    status: IncidentStatus
+    responsible_area: IncidentArea | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
+
+
+class OpenIncidentsSummary(BaseModel):
+    critical: int
+    high: int
+    medium: int
+    low: int
 
 
 class IncidentAuditEvent(BaseModel):
