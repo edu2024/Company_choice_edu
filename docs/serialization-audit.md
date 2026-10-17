@@ -1,17 +1,5 @@
 # Auditoría de serialización
 
-## Alcance y criterio
-
-Auditoría de la API existente de HealthCore en `services/incident-api/app/main.py` y `services/incident-api/app/inventory_router.py`. El alcance incluye incidencias, su historial, estado del servicio e inventario. El repositorio declara que la persistencia es en memoria y que la autenticación está fuera del MVP (`services/incident-api/README.md`); por tanto, **no existen rutas de registro, login, usuarios, perfiles ni ORM en este servicio** y no se añaden rutas ficticias para cubrir esos casos.
-
-Los contratos indicados como actuales se verifican en los decoradores y clases Pydantic del código fuente. La UI Next.js actual no consume la API de incidencias; el backoffice de inventario consume la lista de artículos, lotes y movimientos (`uis/backoffice/inventory.js`). Los payloads objetivo conservan los campos del dominio operativo y evitan añadir datos de paciente (PHI).
-
-**Leyenda:** ✅ serializado explícitamente con una proyección razonable; ⚠️ contrato explícito pero con una proyección de lista/payload mejorable; ❌ respuesta sin `response_model` explícito.
-
-El estado de la tabla y de cada bloque describe el código **antes de esta auditoría**. Las mejoras de la sección siguiente se implementaron en los modelos y routers; el resultado posterior se resume al final.
-
-## Inventario de endpoints
-
 | Método | Ruta | Propósito | Estado hoy | Mejora propuesta |
 |---|---|---|---|---|
 | GET | `/health` | Disponibilidad del servicio | ❌ `dict[str, str]` sin `response_model` | `HealthResponse` explícito con `status` |
@@ -33,169 +21,198 @@ El estado de la tabla y de cada bloque describe el código **antes de esta audit
 | POST | `/inventory/movements` | Registrar movimiento | ✅ `InventoryMovementCreate` → `InventoryMovement` | Mantener DTO separado y respuesta plana sin objeto de lote anidado |
 | GET | `/inventory/items/{item_id}/movements` | Historial de movimientos de artículo | ✅ `list[InventoryMovement]` | Proyección compacta con referencia `item_id`/`lot_id`, tipo, cantidad, motivo operativo y fecha; sin objetos relacionados anidados |
 
-## Hallazgos y propuestas por endpoint
+## GET /health
+Propósito: verificar disponibilidad del servicio.
 
-### GET `/health` — ❌ no serializado explícitamente
+Hoy: devuelve `dict[str, str]` sin `response_model`.
 
-**Hoy:** la función declara `dict[str, str]`, devuelve `{"status": "ok"}` y no declara `response_model`.
+Estado: no serializado.
 
-**Expone:** el único campo actual es `status`, pero el contrato no tiene un esquema Pydantic que lo restrinja/documente.
+Expone: `status` sin esquema que restrinja el valor.
 
-**Mejora propuesta:** declarar `HealthResponse` con `status: Literal["ok"]` y usarlo como `response_model` y tipo de retorno. Payload: `{"status":"ok"}`. **Aplicada:** el router devuelve ahora esa respuesta tipada.
+Mejora: `HealthResponse` con `status: Literal["ok"]` y `response_model` explícito.
 
-### POST `/incidents` — ✅ serializado
+## POST /incidents
+Propósito: registrar una incidencia.
 
-**Hoy:** recibe `IncidentCreate` y declara `response_model=Incident`. El esquema de entrada no incluye ID ni timestamps; la salida los incluye junto con los campos de negocio y estado.
+Hoy: `IncidentCreate` → `Incident` con `response_model`.
 
-**Expone:** `id`, título, descripción operativa, tipo, severidad, canal, estado, área responsable y timestamps. No hay credenciales ni campos de paciente modelados.
+Estado: serializado.
 
-**Mejora propuesta:** ninguna urgente de serialización. Conservar esquema de escritura distinto del esquema de respuesta; no devolver directamente una estructura interna del store. No introducir PHI en título o descripción.
+Expone: id, título, descripción, tipo, severidad, canal, estado, área responsable, timestamps. Sin credenciales ni PHI.
 
-### GET `/incidents` — ⚠️ serialización explícita, proyección pesada para listado
+Mejora: ninguna urgente. Mantener DTO de entrada separado de la respuesta.
 
-**Hoy:** `response_model=list[Incident]`; cada fila contiene la descripción completa, además de todos los campos del detalle.
+## GET /incidents
+Propósito: listar y filtrar incidencias.
 
-**Expone:** `id`, título, descripción, tipo, severidad, canal, estado, área responsable, `created_at` y `updated_at` en cada registro.
+Hoy: `response_model=list[Incident]`, el mismo esquema del detalle.
 
-**Mejora propuesta:** crear `IncidentListItem` con los campos que requiere una fila/resumen (`id`, `title`, `type`, `severity`, `status`, `responsible_area`, `created_at`, `updated_at`); omitir `description` y `channel` del listado si la pantalla no los muestra. Mantener descripción y canal en `GET /incidents/{incident_id}`. Antes de desplegar, comprobar los consumidores reales de incidencias, ya que la UI actual todavía no consulta estas rutas. **Aplicada:** se usa `IncidentListItem`; la respuesta de detalle no se recortó.
+Estado: parcialmente serializado.
 
-### GET `/incidents/summary/open-by-severity` — ❌ diccionario sin modelo
+Expone: descripción completa y canal en cada fila del listado, aunque la tabla solo necesite título, tipo, severidad, estado y área.
 
-**Hoy:** retorna `dict[str, int]` sin `response_model`; las claves se generan desde el enum de severidad.
+Mejora: `IncidentListItem` con id, title, type, severity, status, responsible_area, created_at, updated_at. Sin description ni channel.
 
-**Expone:** contadores para `critical`, `high`, `medium` y `low` (incluye cero cuando no hay casos).
+## GET /incidents/summary/open-by-severity
+Propósito: resumen de incidencias abiertas agrupadas por gravedad.
 
-**Mejora propuesta:** respuesta Pydantic estable, por ejemplo `OpenIncidentsSummary` con esos cuatro enteros nombrados, o lista de `{severity, count}` con enum. Preferir campos tipados si el cliente espera una forma fija; no dejar que claves arbitrarias se conviertan en contrato implícito. **Aplicada:** `OpenIncidentsSummary` fija los cuatro contadores del catálogo.
+Hoy: devuelve `dict[str, int]` sin `response_model`.
 
-### GET `/incidents/{incident_id}` — ✅ serializado
+Estado: no serializado.
 
-**Hoy:** `response_model=Incident`.
+Expone: claves dinámicas generadas desde el enum de severidad.
 
-**Expone:** detalle operativo y timestamps; 404 si el ID no existe.
+Mejora: `OpenIncidentsSummary` con campos fijos critical, high, medium, low.
 
-**Mejora propuesta:** ninguna. Este es el esquema completo; mantenerlo independiente del esquema ligero del listado.
+## PATCH /incidents/{incident_id}
+Propósito: editar campos descriptivos de una incidencia.
 
-### PATCH `/incidents/{incident_id}` — ✅ entrada/salida separadas
+Hoy: `IncidentUpdate` → `Incident` con `response_model`. La entrada solo acepta título, descripción y tipo.
 
-**Hoy:** recibe `IncidentUpdate` y responde con `Incident`.
+Estado: serializado.
 
-**Expone:** el objeto de incidencia actualizado completo. `IncidentUpdate` solo acepta campos editables del incidente; no acepta estado, área asignada, ID ni timestamps.
+Expone: el incidente actualizado completo.
 
-**Mejora propuesta:** ninguna estructural. Mantener el DTO estricto y no reutilizar `Incident` como modelo de escritura.
+Mejora: ninguna. Mantener DTO de entrada estricto y separado de la respuesta.
 
-### PATCH `/incidents/{incident_id}/status` — ✅ contrato explícito
+## PATCH /incidents/{incident_id}/status
+Propósito: cambiar estado de una incidencia y registrar auditoría.
 
-**Hoy:** entrada `IncidentStatusUpdate` (`status`, `changed_by`), salida `Incident`.
+Hoy: `IncidentStatusUpdate` → `Incident` con `response_model`.
 
-**Expone:** estado actual con el resto del detalle; el actor y el evento de cambio se conservan en auditoría, no se agregan como campos arbitrarios al incidente.
+Estado: serializado.
 
-**Mejora propuesta:** ninguna. Verificar que el evento siga accesible en la ruta de auditoría y no exponer estructuras internas del store.
+Expone: el incidente con el nuevo estado; el evento de auditoría queda en el historial.
 
-### PATCH `/incidents/{incident_id}/responsible-area` — ✅ contrato explícito
+Mejora: ninguna. La trazabilidad se consulta por separado en la ruta de auditoría.
 
-**Hoy:** entrada `IncidentAreaUpdate` (`responsible_area`, `changed_by`), salida `Incident`.
+## PATCH /incidents/{incident_id}/responsible-area
+Propósito: reasignar el área responsable de una incidencia.
 
-**Expone:** estado actualizado del incidente; la trazabilidad se consulta como evento aparte.
+Hoy: `IncidentAreaUpdate` → `Incident` con `response_model`.
 
-**Mejora propuesta:** ninguna. Preservar autor, valor anterior/nuevo y fecha UTC en el historial.
+Estado: serializado.
 
-### GET `/incidents/{incident_id}/audit` — ✅ proyección plana
+Expone: el incidente actualizado; valor anterior/nuevo accesible en auditoría.
 
-**Hoy:** `response_model=list[IncidentAuditEvent]`.
+Mejora: ninguna. Separación correcta entre escritura y trazabilidad.
 
-**Expone:** ID de evento, ID de incidencia, campo, valor anterior/nuevo, actor y fecha de cambio. No anida el incidente completo.
+## GET /incidents/{incident_id}/audit
+Propósito: consultar eventos de auditoría de una incidencia.
 
-**Mejora propuesta:** ninguna en serialización. Conservar la lectura plana y la inmutabilidad; un ID de incidencia es suficiente para relacionar el evento.
+Hoy: `response_model=list[IncidentAuditEvent]`.
 
-### POST `/inventory/items` — ✅ serializado y entrada acotada
+Estado: serializado.
 
-**Hoy:** `InventoryItemCreate` → `InventoryItem`; el esquema base prohíbe extras (`extra="forbid"`) y valida texto operacional sin PHI.
+Expone: id de evento, id de incidencia, campo modificado, valor anterior, valor nuevo, actor, fecha.
 
-**Expone:** artículo creado con ID y timestamps. No incluye stock calculado ni colecciones de lotes/movimientos.
+Mejora: ninguna. Proyección plana sin objetos anidados.
 
-**Mejora propuesta:** ninguna inmediata. Mantener separados los campos de escritura de la respuesta enriquecida del listado/detalle.
+## POST /inventory/items
+Propósito: crear un artículo de inventario.
 
-### GET `/inventory/items` — ⚠️ esquema de lectura de lista puede adelgazar
+Hoy: `InventoryItemCreate` → `InventoryItem` con `response_model`. Entrada con `extra="forbid"` y validación de texto sin PHI.
 
-**Hoy:** `response_model=list[InventoryItemView]`, que amplía el artículo con `available_stock` y `below_reorder`.
+Estado: serializado.
 
-**Expone:** identidad y datos del artículo, fechas, stock derivado y estado de reorden.
+Expone: artículo creado con ID y timestamps. Sin stock calculado ni colecciones anidadas.
 
-**Mejora propuesta:** formalizar `InventoryItemListItem` como proyección específica. La UI (`uis/backoffice/inventory.js`) consume ID, nombre, clínica, categoría, stock disponible, punto de reorden y `below_reorder`; solo mantener el resto de campos de lista cuando un consumidor real los use. No incluir lotes/movimientos anidados; cada relación tiene su endpoint. **Aplicada:** la lista conserva los campos de la tabla y omite país, unidad y timestamps; el detalle mantiene `InventoryItemView` completo.
+Mejora: ninguna inmediata. Mantener esquemas de escritura separados de la respuesta de listado.
 
-### GET `/inventory/items/{item_id}` — ✅ detalle calculado explícito
+## GET /inventory/items
+Propósito: listar artículos con stock y filtro por debajo del punto de reorden.
 
-**Hoy:** `response_model=InventoryItemView`.
+Hoy: `response_model=list[InventoryItemView]`, que incluye campos de detalle y fechas en cada fila.
 
-**Expone:** campos del artículo, `available_stock` y `below_reorder` calculados por el servicio.
+Estado: parcialmente serializado.
 
-**Mejora propuesta:** mantener este esquema como respuesta de detalle, separado del contrato de lista. No anidar lotes ni movimientos: el cliente los carga con rutas específicas.
+Expone: país, unidad y timestamps en cada fila del listado cuando la tabla solo necesita id, clínica, nombre, categoría, stock, punto de reorden y flag de reorden.
 
-### PATCH `/inventory/items/{item_id}` — ✅ modelo de entrada separado
+Mejora: `InventoryItemListItem` con id, clinic_location, name, category, reorder_point, available_stock, below_reorder. País, unidad y timestamps se quedan en el detalle.
 
-**Hoy:** `InventoryItemUpdate` → `InventoryItem`; campos opcionales con límites y prohibición de extras.
+## GET /inventory/items/{item_id}
+Propósito: consultar detalle completo de un artículo.
 
-**Expone:** datos actualizados del artículo y timestamps, sin stock calculado.
+Hoy: `response_model=InventoryItemView` con stock calculado y flag de reorden.
 
-**Mejora propuesta:** ninguna inmediata. Si la pantalla necesita stock tras actualizar, se puede devolver `InventoryItemView`, pero no hacerlo sin requerimiento de cliente.
+Estado: serializado.
 
-### DELETE `/inventory/items/{item_id}` — ✅ respuesta sin cuerpo
+Expone: todos los campos del artículo más stock disponible y estado de reorden. Sin lotes ni movimientos anidados.
 
-**Hoy:** `204 No Content` con `Response`; no declara `response_model` por diseño y no devuelve documento alguno.
+Mejora: ninguna. El detalle necesita la información completa; las colecciones tienen rutas propias.
 
-**Expone:** ningún campo; errores 404/409 llevan el formato estándar de error de FastAPI.
+## PATCH /inventory/items/{item_id}
+Propósito: actualizar campos de un artículo.
 
-**Mejora propuesta:** ninguna. Un 204 no necesita serializer de cuerpo.
+Hoy: `InventoryItemUpdate` → `InventoryItem`. Campos opcionales con límites y `extra="forbid"`.
 
-### POST `/inventory/lots` — ✅ entrada/salida tipadas y relación plana
+Estado: serializado.
 
-**Hoy:** `InventoryLotCreate` → `InventoryLot`.
+Expone: artículo actualizado con timestamps, sin stock calculado.
 
-**Expone:** lote con `id`, `item_id`, código, fecha de caducidad y recepción. La relación al artículo es un ID y no un objeto anidado.
+Mejora: ninguna inmediata. Si la pantalla necesita stock tras actualizar, usar `InventoryItemView` como respuesta.
 
-**Mejora propuesta:** ninguna. Mantener payload plano; el cliente ya consume los lotes por una ruta dedicada.
+## DELETE /inventory/items/{item_id}
+Propósito: eliminar un artículo del inventario.
 
-### GET `/inventory/items/{item_id}/lots` — ✅ lista tipada
+Hoy: `204 No Content` sin cuerpo.
 
-**Hoy:** `response_model=list[InventoryLot]`.
+Estado: serializado (código de estado sin cuerpo).
 
-**Expone:** campos de lote, incluyendo `item_id`; no expande el artículo relacionado.
+Expone: ningún campo. Errores 404/409 siguen el formato estándar de FastAPI.
 
-**Mejora propuesta:** ninguna urgente. Puede añadirse un nombre de esquema de lectura (`InventoryLotRead`) si lectura y escritura dejan de compartir exactamente los mismos campos; el listado actual necesita los datos de lote para desplegar opciones de lotes.
+Mejora: ninguna. Un 204 no necesita serializer.
 
-### POST `/inventory/movements` — ✅ escritura restringida y respuesta tipada
+## POST /inventory/lots
+Propósito: registrar un lote para un artículo.
 
-**Hoy:** `InventoryMovementCreate` → `InventoryMovement`; el modelo de entrada prohíbe campos extras y valida cantidades, motivo y texto sin PHI.
+Hoy: `InventoryLotCreate` → `InventoryLot` con `response_model`.
 
-**Expone:** movimiento con IDs de artículo/lote, tipo, cantidad, motivo y fecha; relaciones planas.
+Estado: serializado.
 
-**Mejora propuesta:** ninguna urgente. Mantener referencias por ID, no serializar artículos o lotes completos junto con el movimiento.
+Expone: lote con id, item_id, código, fecha de caducidad y fecha de recepción. Relación plana (ID, no objeto anidado).
 
-### GET `/inventory/items/{item_id}/movements` — ✅ lista explícita y plana
+Mejora: ninguna. Mantener payload plano; el cliente consume lotes por ruta dedicada.
 
-**Hoy:** `response_model=list[InventoryMovement]`.
+## GET /inventory/items/{item_id}/lots
+Propósito: listar lotes de un artículo.
 
-**Expone:** IDs de artículo/lote, tipo, cantidad, razón operativa, ID y fecha; no objetos relacionados.
+Hoy: `response_model=list[InventoryLot]`.
 
-**Mejora propuesta:** ninguna urgente. Mantener la relación plana y el motivo validado sin PHI. Si crece el tráfico, añadir paginación como mejora separada; no cambiar el esquema sin evidencia de necesidad.
+Estado: serializado.
 
-## Prioridad de implementación
+Expone: campos del lote con item_id; no expande el artículo.
 
-1. Añadir esquema de respuesta `HealthResponse`.
-2. Añadir esquema de resumen de severidad y declararlo con `response_model`.
-3. Añadir proyecciones de lista específicas (`IncidentListItem` y `InventoryItemListItem`) solo después de confirmar el conjunto de campos de consumidores; conservar los campos requeridos por la UI de inventario.
-4. Agregar tests que verifiquen presencia/ausencia de claves, los códigos 204, el esquema de health/resumen y que las listas no incluyan detalle innecesario.
+Mejora: ninguna urgente. Añadir esquema de lectura separado si lectura y escritura divergen.
 
-## Resultado después de la implementación
+## POST /inventory/movements
+Propósito: registrar un movimiento de stock.
 
-- `GET /health`: usa `HealthResponse` con `status: Literal["ok"]`.
-- `GET /incidents/summary/open-by-severity`: usa `OpenIncidentsSummary` con los cuatro niveles de severidad fijos.
-- `GET /incidents`: usa `IncidentListItem`, omite `description` y `channel`; `GET /incidents/{incident_id}` mantiene el detalle completo.
-- `GET /inventory/items`: usa `InventoryItemListItem`, conserva los campos requeridos para la tabla (`id`, clínica, nombre, categoría, punto de reorden, stock disponible y flag de reorden) y omite país/unidad/timestamps del listado; el detalle sigue usando `InventoryItemView`.
-- Los demás endpoints mantienen sus modelos de entrada/salida existentes porque ya son explícitos, usan relaciones planas o responden intencionalmente sin cuerpo (`204`).
-- No se añadieron endpoints de autenticación/usuario: el README de la API indica que autenticación está fuera del alcance actual.
-- Hay pruebas de contrato que verifican la lista compacta, la permanencia de descripción/country en los detalles y las respuestas tipadas de health/resumen.
+Hoy: `InventoryMovementCreate` → `InventoryMovement`. Entrada con validación de cantidad, motivo y texto sin PHI.
 
-## Nota de implementación
+Estado: serializado.
 
-Este documento registra tanto el estado previo como el objetivo. Los cambios de código deben actualizar el estado “Hoy” o la tabla de inventario cuando se implementen; una propuesta documentada no se debe marcar como completada hasta que exista el esquema, la ruta y su prueba.
+Expone: movimiento con IDs de artículo/lote, tipo, cantidad, motivo y fecha. Relaciones planas.
+
+Mejora: ninguna. Mantener referencias por ID sin serializar objetos completos.
+
+## GET /inventory/items/{item_id}/movements
+Propósito: consultar historial de movimientos de un artículo.
+
+Hoy: `response_model=list[InventoryMovement]`.
+
+Estado: serializado.
+
+Expone: IDs de artículo y lote, tipo, cantidad, motivo, id de movimiento y fecha.
+
+Mejora: ninguna urgente. Añadir paginación si crece el volumen; no cambiar esquema sin necesidad.
+
+## Resumen de mejoras aplicadas
+
+| Método | Ruta | Estado anterior | Mejora |
+|---|---|---|---|
+| GET | `/health` | ❌ no serializado | `HealthResponse` con `status: Literal["ok"]` |
+| GET | `/incidents` | ⚠️ parcialmente serializado | `IncidentListItem` sin description ni channel |
+| GET | `/incidents/summary/open-by-severity` | ❌ no serializado | `OpenIncidentsSummary` con critical, high, medium, low |
+| GET | `/inventory/items` | ⚠️ parcialmente serializado | `InventoryItemListItem` con campos de tabla; país, unidad y timestamps solo en detalle |
