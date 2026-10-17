@@ -41,7 +41,22 @@ class InventoryItemApiTest(unittest.TestCase):
 
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(len(listing.json()), 1)
-        self.assertEqual(listing.json()[0]["country"], "us")
+        self.assertEqual(
+            set(listing.json()[0]),
+            {
+                "id",
+                "clinic_location",
+                "name",
+                "category",
+                "reorder_point",
+                "available_stock",
+                "below_reorder",
+            },
+        )
+        self.assertNotIn("country", listing.json()[0])
+        self.assertEqual(detail.json()["country"], "us")
+        self.assertIn("available_stock", listing.json()[0])
+        self.assertIn("below_reorder", listing.json()[0])
         self.assertEqual(updated.json()["reorder_point"], 20)
 
         deleted = self.client.delete(f"/inventory/items/{item_id}")

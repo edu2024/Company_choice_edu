@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from .inventory_models import (
     InventoryItem,
     InventoryItemCreate,
+    InventoryItemListItem,
     InventoryItemUpdate,
     InventoryItemView,
     InventoryLot,
@@ -22,14 +23,26 @@ def create_item(payload: InventoryItemCreate) -> InventoryItem:
     return inventory_store.create_item(payload)
 
 
-@router.get("/items", response_model=list[InventoryItemView])
+@router.get("/items", response_model=list[InventoryItemListItem])
 def list_items(
     clinic_location: str | None = None,
     below_reorder: bool | None = None,
-) -> list[InventoryItemView]:
-    items = [
+) -> list[InventoryItemListItem]:
+    views = [
         inventory_store.item_view(item)
         for item in inventory_store.list_items(clinic_location)
+    ]
+    items = [
+        InventoryItemListItem(
+            id=view.id,
+            clinic_location=view.clinic_location,
+            name=view.name,
+            category=view.category,
+            reorder_point=view.reorder_point,
+            available_stock=view.available_stock,
+            below_reorder=view.below_reorder,
+        )
+        for view in views
     ]
     if below_reorder is None:
         return items

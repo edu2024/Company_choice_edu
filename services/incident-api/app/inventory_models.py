@@ -89,6 +89,18 @@ class InventoryItemView(InventoryItem):
     below_reorder: bool
 
 
+class InventoryItemListItem(BaseModel):
+    """Fields consumed by the inventory table, without detail-only metadata."""
+
+    id: str
+    clinic_location: str
+    name: str
+    category: InventoryCategory
+    reorder_point: float
+    available_stock: float
+    below_reorder: bool
+
+
 class InventoryLotCreate(InventoryModel):
     item_id: str
     lot_code: str = Field(min_length=1, max_length=80)
