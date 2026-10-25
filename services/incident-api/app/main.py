@@ -1,7 +1,10 @@
+import os
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .inventory_router import router as inventory_router
+from .telemetry_router import router as telemetry_router
 from .models import (
     Incident,
     IncidentArea,
@@ -31,8 +34,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# TELEMETRY_ENDPOINT is read for configuration (used in Phase 3).
+# The frontend uses NEXT_PUBLIC_TELEMETRY_ENDPOINT to point to this stub.
+_ = os.getenv("TELEMETRY_ENDPOINT", "http://localhost:8000/telemetry/events")
+
 store = IncidentStore()
 app.include_router(inventory_router)
+app.include_router(telemetry_router)
 
 
 @app.get("/health", tags=["system"])
