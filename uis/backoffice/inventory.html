@@ -39,6 +39,23 @@
         <p id="inventory-message" role="status"></p>
       </main>
     </div>
+    <script src="services/telemetry.js"></script>
     <script src="inventory.js"></script>
+    <script>
+      /* Global error handlers (base técnica obligatoria) */
+      window.onerror = (_msg, _source, _lineno, _colno, error) => {
+        const raw = typeof _msg === 'string' ? _msg : String(_msg ?? '');
+        let hash = 0;
+        for (let i = 0; i < raw.length; i++) { hash = ((hash << 5) - hash) + raw.charCodeAt(i); hash = hash & hash; }
+        track('frontend_error_caught', { page: 'inventory', component: 'global', error_class: error?.constructor?.name ?? 'WindowError', error_message_hash: Math.abs(hash).toString(16) });
+      };
+      window.addEventListener('unhandledrejection', (evt) => {
+        let msg = '';
+        try { msg = evt?.reason?.message || String(evt?.reason ?? ''); } catch (_) { msg = ''; }
+        let hash = 0;
+        for (let i = 0; i < msg.length; i++) { hash = ((hash << 5) - hash) + msg.charCodeAt(i); hash = hash & hash; }
+        track('frontend_error_caught', { page: 'inventory', component: 'global', error_class: 'PromiseRejection', error_message_hash: Math.abs(hash).toString(16) });
+      });
+    </script>
   </body>
 </html>

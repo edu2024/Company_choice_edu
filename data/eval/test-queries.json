@@ -1,0 +1,52 @@
+[
+  {
+    "question": "What insurance plans do you accept in the United States?",
+    "expected_source": "insurance-coverage",
+    "expected_keywords": ["Blue Cross Blue Shield", "Aetna", "Cigna", "UnitedHealthcare"]
+  },
+  {
+    "question": "What is the no-show fee for cancelling less than 24 hours in advance?",
+    "expected_source": "appointment-policy",
+    "expected_keywords": ["50 USD", "40 GBP"]
+  },
+  {
+    "question": "How long does an internal referral take from creation to confirmed appointment?",
+    "expected_source": "referral-process",
+    "expected_keywords": ["11 days"]
+  },
+  {
+    "question": "What documents does a new patient need to bring to their first appointment?",
+    "expected_source": "new-patient-checklist",
+    "expected_keywords": ["valid ID", "insurance card", "list of current medications"]
+  },
+  {
+    "question": "Do you charge a no-show fee for Medicare patients?",
+    "expected_source": "appointment-policy",
+    "expected_keywords": ["not charged", "Medicare", "no-show fee"]
+  },
+  {
+    "question": "What should I do if I haven't received appointment options after 5 business days from a referral?",
+    "expected_source": "referral-process",
+    "expected_keywords": ["escalate", "Marcus Reid"]
+  },
+  {
+    "question": "What insurance is accepted in the United Kingdom?",
+    "expected_source": "insurance-coverage",
+    "expected_keywords": ["NHS", "Bupa", "AXA Health"]
+  },
+  {
+    "question": "What happens if a new patient hasn't completed the medical history form before their appointment?",
+    "expected_source": "new-patient-checklist",
+    "expected_keywords": ["consultation time", "reduced", "complete it during the visit"]
+  },
+  {
+    "question": "How many no-shows trigger a flag for coordinator review before booking a new appointment?",
+    "expected_source": "appointment-policy",
+    "expected_keywords": ["3 no-shows", "6 months", "flagged"]
+  },
+  {
+    "question": "What type of consent does a new patient need to sign?",
+    "expected_source": "new-patient-checklist",
+    "expected_keywords": ["informed consent", "HIPAA", "UK GDPR"]
+  }
+]

@@ -1,3 +1,20 @@
+import { track } from './services/telemetry.js';
+
+/* ── Helpers ─────────────────────────────────────────────────────── */
+
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16);
+}
+
+/* ── Section viewed event ────────────────────────────────────────── */
+track('section_viewed', { section: 'incident_desk' });
+
 const API_URL = getApiUrl();
 let incidents = [];
 
@@ -20,14 +37,19 @@ const form = document.querySelector("#incident-form");
 const message = document.querySelector("#form-message");
 
 async function loadIncidents() {
+  const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
   try {
     const response = await fetch(`${API_URL}/incidents`);
+    const durationMs = typeof performance !== 'undefined' ? performance.now() - startTime : 0;
     if (!response.ok) throw new Error("No se pudo cargar la cola");
+    track('api_latency_recorded', { endpoint: '/incidents', duration_ms: Math.round(durationMs), status: 200 });
     incidents = await response.json();
     renderMetrics();
     renderList();
   } catch (error) {
+    track('frontend_error_caught', { page: 'incident_desk', component: 'loadIncidents', error_class: 'APIError', error_message_hash: simpleHash(error.message || '') });
     listElement.innerHTML = `<div class="empty-state">No se pudo conectar con la API. Inicia el servicio en el puerto 8000.</div>`;
+    track('api_latency_recorded', { endpoint: '/incidents', duration_ms: Math.round(typeof performance !== 'undefined' ? performance.now() - startTime : 0), status: 0 });
   }
 }
 
@@ -71,22 +93,33 @@ async function showDetail(id) {
 }
 
 async function updateStatus(id, status) {
-  await fetch(`${API_URL}/incidents/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, changed_by: "operations-user" }) });
+  const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
+  const response = await fetch(`${API_URL}/incidents/${id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, changed_by: "operations-user" }) });
+  const durationMs = typeof performance !== 'undefined' ? performance.now() - startTime : 0;
+  track('api_latency_recorded', { endpoint: `/incidents/${id}/status`, duration_ms: Math.round(durationMs), status: response.status });
+  track('incident_status_changed', { incident_id: id, new_status: status, changed_by: 'operations-user' });
   await loadIncidents();
   await showDetail(id);
 }
 
 async function updateArea(id, responsibleArea) {
   if (!responsibleArea) return;
-  await fetch(`${API_URL}/incidents/${id}/responsible-area`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ responsible_area: responsibleArea, changed_by: "operations-user" }) });
+  const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
+  const response = await fetch(`${API_URL}/incidents/${id}/responsible-area`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ responsible_area: responsibleArea, changed_by: "operations-user" }) });
+  const durationMs = typeof performance !== 'undefined' ? performance.now() - startTime : 0;
+  track('api_latency_recorded', { endpoint: `/incidents/${id}/responsible-area`, duration_ms: Math.round(durationMs), status: response.status });
+  track('incident_area_changed', { incident_id: id, new_area: responsibleArea, changed_by: 'operations-user' });
   await loadIncidents();
   await showDetail(id);
 }
 
 async function updateIncident(event, id) {
   event.preventDefault();
+  const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
   const response = await fetch(`${API_URL}/incidents/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  const durationMs = typeof performance !== 'undefined' ? performance.now() - startTime : 0;
+  track('api_latency_recorded', { endpoint: `/incidents/${id}`, duration_ms: Math.round(durationMs), status: response.status });
   if (!response.ok) return;
   await loadIncidents();
   await showDetail(id);
@@ -94,13 +127,20 @@ async function updateIncident(event, id) {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const startTime = typeof performance !== 'undefined' ? performance.now() : 0;
   const data = Object.fromEntries(new FormData(form).entries());
   if (!data.responsible_area) delete data.responsible_area;
   try {
     const response = await fetch(`${API_URL}/incidents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    const durationMs = typeof performance !== 'undefined' ? performance.now() - startTime : 0;
+    track('api_latency_recorded', { endpoint: '/incidents', duration_ms: Math.round(durationMs), status: response.status });
     if (!response.ok) throw new Error("No se pudo guardar");
+    track('incident_created', { incident_severity: data.severity, incident_type: data.type });
     form.reset(); message.textContent = "Incidencia registrada correctamente."; await loadIncidents();
-  } catch (error) { message.textContent = "No se pudo registrar. Comprueba que la API esté activa."; }
+  } catch (error) {
+    track('frontend_error_caught', { page: 'incident_desk', component: 'create_incident', error_class: 'APIError', error_message_hash: simpleHash(error.message || '') });
+    message.textContent = "No se pudo registrar. Comprueba que la API esté activa.";
+  }
 });
 
 document.querySelector("#search-input").addEventListener("input", renderList);
